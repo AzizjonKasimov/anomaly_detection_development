@@ -1,0 +1,25 @@
+# ignore pushing the virtual environment
+**/venv/
+**/env/
+**/.venv/
+
+# ignore pushing the folders with data
+**/datasets/
+**/production_datasets/
+**/Original_labeled_datasets/
+**/mlruns/
+
+# Jupyter Notebook
+**/.ipynb_checkpoints/
+
+# Python
+**/__pycache__/
+
+# ignore pushing the datasets
+
+**/cleaned_data_DASIV01.csv
+**/cleaned_data_DASIV02.csv
+**/cleaned_data_DASIV03.csv
+**/cleaned_data_DASIV04.csv
+
+
