@@ -8,6 +8,7 @@
 **/production_datasets/
 **/Original_labeled_datasets/
 **/mlruns/
+**/mlartifacts/
 
 # Jupyter Notebook
 **/.ipynb_checkpoints/

@@ -147,6 +147,10 @@ class GNNAD(GDN):
         self.errors_topk = errors_topk
         self.loss_func = loss_func
         self.validation_size = validation_size
+        self.cfg = {
+            "slide_win": self.slide_win,
+            "slide_stride": self.slide_stride,
+        }
 
         # set the seeds and load GDN model
         self._set_seeds()
@@ -178,7 +182,6 @@ class GNNAD(GDN):
     ## split the data into training and validation sets. The validation set is used for early stopping and setting the threshold
     def _split_train_validation(self, data):
         dataset_len = len(data)
-
 
         validate_use_len = self.validation_size // self.slide_stride # divide by stride because number of timesteps will be divided by stride
         idx = torch.arange(dataset_len)
@@ -217,13 +220,8 @@ class GNNAD(GDN):
 
     ## Load only test data for _predict method
     def _load_test_data(self, X_test, y_test=None):
-        cfg = {
-            "slide_win": self.slide_win,
-            "slide_stride": self.slide_stride,
-        }
-
         test_input = parse_data(X_test, self.input_column_names, labels=y_test)
-        test_dataset = TimeDataset(test_input, mode="test", config=cfg)
+        test_dataset = TimeDataset(test_input, mode="test", config=self.cfg)
 
         # get data loaders
         g = self._get_loader_generator() if self.use_deterministic else None
@@ -240,13 +238,8 @@ class GNNAD(GDN):
 
 
     def load_train_data(self, X_train):
-        cfg = {
-            "slide_win": self.slide_win,
-            "slide_stride": self.slide_stride,
-        }
-
         train_input = parse_data(X_train, self.input_column_names) # output data will have number_features+1 as rows, where the last row will be the added labels 
-        train_dataset = TimeDataset(train_input, mode="train", config=cfg)
+        train_dataset = TimeDataset(train_input, mode="train", config=self.cfg)
 
         train_subset, validate_subset = self._split_train_validation(train_dataset)
         g = self._get_loader_generator() if self.use_deterministic else None
@@ -273,8 +266,6 @@ class GNNAD(GDN):
     
 
     def load_saved_model(self, model_path):
-        
-        # read in best model
         self.load_state_dict(torch.load(model_path))
         self.to(self.device)
 
@@ -291,14 +282,12 @@ class GNNAD(GDN):
 
     ## testing function to evaluate the model
     def _test(self, dataloader):
-
         test_loss_list = []
         t_test_predicted_list = []
         t_test_ground_list = []
         t_test_labels_list = []
 
         self.eval()
-
         for x, y, labels in dataloader:
             x, y, labels = [
                 item.to(self.device).float() for item in [x, y, labels]
@@ -356,7 +345,6 @@ class GNNAD(GDN):
                 out = self(x).float()
 
                 loss = loss_func(out, y, self.loss_func)
-
                 loss.backward()
                 optimizer.step()
 
@@ -398,7 +386,6 @@ class GNNAD(GDN):
         if self.threshold_type == "percentile":
             _, topk_val_err_scores = aggregate_error_scores(validate_err_scores, topk=self.errors_topk)
             threshold = np.percentile(topk_val_err_scores, self.percentile)
-
         elif self.threshold_type == "max_validation":
             _, topk_val_err_scores = aggregate_error_scores(validate_err_scores, topk=self.errors_topk)
             threshold = np.max(topk_val_err_scores)
