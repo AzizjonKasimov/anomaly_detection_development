@@ -178,25 +178,6 @@ class GNNAD(GDN):
         g.manual_seed(self.random_seed)
         return g
 
-
-    ## split the data into training and validation sets. The validation set is used for early stopping and setting the threshold
-    def _split_train_validation(self, data):
-        dataset_len = len(data)
-
-        validate_use_len = self.validation_size // self.slide_stride # divide by stride because number of timesteps will be divided by stride
-        idx = torch.arange(dataset_len)
-
-        # allocate the first dataset_len - validate_use_len timesteps for training
-        train_sub_idx = idx[:-validate_use_len]
-        train_subset = Subset(data, train_sub_idx)
-
-        # allocate the last validate_use_len timesteps for validation
-        validate_sub_idx = idx[-validate_use_len:]
-        validate_subset = Subset(data, validate_sub_idx)
-
-        return train_subset, validate_subset
-
-
     ## load the training, validation and test data
     def make_graph(self, feature_list):
         fc_struc = {
@@ -238,14 +219,19 @@ class GNNAD(GDN):
 
 
     def load_train_data(self, X_train):
-        train_input = parse_data(X_train, self.input_column_names) # output data will have number_features+1 as rows, where the last row will be the added labels 
-        train_dataset = TimeDataset(train_input, mode="train", config=self.cfg)
+        train_subset =  X_train.iloc[: -self.validation_size]
+        validate_subset = X_train.iloc[-self.validation_size :]
+        
+        train_input = parse_data(train_subset, self.input_column_names) # output data will have number_features+1 as rows, where the last row will be the added labels 
+        val_input = parse_data(validate_subset, self.input_column_names)
 
-        train_subset, validate_subset = self._split_train_validation(train_dataset)
+        train_dataset = TimeDataset(train_input, mode="train", config=self.cfg)
+        val_dataset = TimeDataset(val_input, mode="val", config=self.cfg)
+
         g = self._get_loader_generator() if self.use_deterministic else None
 
         train_dataloader = DataLoader(
-            train_subset,
+            train_dataset,
             batch_size=self.batch,
             shuffle=self.shuffle_train,
             num_workers=0,
@@ -254,7 +240,7 @@ class GNNAD(GDN):
         )
 
         validate_dataloader = DataLoader(
-            validate_subset,
+            val_dataset,
             batch_size=self.batch,
             shuffle=False,
             generator=g,

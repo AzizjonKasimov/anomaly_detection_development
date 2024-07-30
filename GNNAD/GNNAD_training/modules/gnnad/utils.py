@@ -108,7 +108,7 @@ def parse_data(data, feature_list, labels=None):
 
 
 def get_full_err_scores(test_result, smoothen_error=True):
-    """Get stacked array of error scores for each feature by applying the
+    """Get array of error scores for each feature by applying the
     `get_err_scores` function on every slice of the `test_result` tensor.
     """
     all_scores = [
@@ -153,13 +153,14 @@ def get_err_scores(test_result_list, smoothen_error):
     return test_delta
 
 
-def aggregate_error_scores(test_err_scores, topk=1):
+def aggregate_error_scores(err_scores, topk=1):
+
     # finds topk features idxs of max scores for each time point
-    topk_indices = np.argpartition(test_err_scores, -topk, axis=0)[-topk:]
+    topk_indices = np.argpartition(err_scores, -topk, axis=0)[-topk:]
 
     # for each time, sum the topk error scores
     topk_err_scores = np.sum(
-        np.take_along_axis(test_err_scores, topk_indices, axis=0), axis=0
+        np.take_along_axis(err_scores, topk_indices, axis=0), axis=0
     )
 
     return topk_indices, topk_err_scores
