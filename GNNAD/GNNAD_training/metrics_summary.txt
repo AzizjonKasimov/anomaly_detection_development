@@ -14,22 +14,22 @@ Fold 12 - Number of FP: 4, FP Rate: 0.031007751937984496
 Fold 13 - Number of FP: 18, FP Rate: 0.13953488372093023
 Fold 14 - Number of FP: 0, FP Rate: 0.0
 Fold 15 - Number of FP: 0, FP Rate: 0.0
-Fold 16 - F1: 0.38356164383561636, Recall: 0.7777777777777778, Precision: 0.2545454545454545
-Fold 17 - F1: 0.8695652173913043, Recall: 0.9523809523809523, Precision: 0.8
+Fold 16 - F1: 0.39999999999999997, Recall: 0.8333333333333334, Precision: 0.2631578947368421
+Fold 17 - F1: 0.8936170212765957, Recall: 1.0, Precision: 0.8076923076923077
 Fold 18 - F1: 0.0, Recall: 0.0, Precision: 0.0
 Fold 19 - F1: 0.8604651162790696, Recall: 0.9487179487179487, Precision: 0.7872340425531915
 Fold 20 - F1: 0.8076923076923076, Recall: 0.7241379310344828, Precision: 0.9130434782608695
 Fold 21 - F1: 0.0, Recall: 0.0, Precision: 0.0
 Fold 22 - Number of FP: 0, FP Rate: 0.0
 Fold 23 - Number of FP: 0, FP Rate: 0.0
-Fold 24 - F1: 0.33333333333333337, Recall: 0.2, Precision: 1.0
+Fold 24 - F1: 0.4, Recall: 0.25, Precision: 1.0
 Fold 25 - F1: 0.0, Recall: 0.0, Precision: 0.0
 Fold 26 - Number of FP: 0, FP Rate: 0.0
 Fold 27 - Number of FP: 0, FP Rate: 0.0
-Fold 28 - F1: 0.5277777777777778, Recall: 0.6129032258064516, Precision: 0.4634146341463415
+Fold 28 - F1: 0.5142857142857143, Recall: 0.5806451612903226, Precision: 0.46153846153846156
 Fold 29 - F1: 0.5093167701863354, Recall: 0.3416666666666667, Precision: 1.0
-Fold 30 - F1: 0.3137254901960785, Recall: 0.18604651162790697, Precision: 1.0
-Fold 31 - F1: 0.20833333333333334, Recall: 0.11627906976744186, Precision: 1.0
+Fold 30 - F1: 0.3461538461538462, Recall: 0.20930232558139536, Precision: 1.0
+Fold 31 - F1: 0.23287671232876714, Recall: 0.13178294573643412, Precision: 1.0
 Fold 32 - F1: 0.0, Recall: 0.0, Precision: 0.0
 Fold 33 - Number of FP: 0, FP Rate: 0.0
 Fold 34 - Number of FP: 3, FP Rate: 0.023255813953488372
@@ -40,39 +40,39 @@ Fold 38 - Number of FP: 2, FP Rate: 0.015503875968992248
 Fold 39 - Number of FP: 0, FP Rate: 0.0
 Fold 40 - Number of FP: 1, FP Rate: 0.007751937984496124
 Fold 41 - Number of FP: 4, FP Rate: 0.031007751937984496
-Fold 42 - Number of FP: 0, FP Rate: 0.0
+Fold 42 - Number of FP: 1, FP Rate: 0.007751937984496124
 Fold 43 - Number of FP: 0, FP Rate: 0.0
 Fold 44 - Number of FP: 1, FP Rate: 0.007751937984496124
 Fold 45 - F1: 0.9166666666666666, Recall: 0.8461538461538461, Precision: 1.0
-Fold 46 - Number of FP: 35, FP Rate: 0.2713178294573643
+Fold 46 - Number of FP: 36, FP Rate: 0.27906976744186046
 Fold 47 - Number of FP: 0, FP Rate: 0.0
-Fold 48 - F1: 0.25, Recall: 0.15384615384615385, Precision: 0.6666666666666666
+Fold 48 - F1: 0.0, Recall: 0.0, Precision: 0.0
 Fold 49 - F1: 0.5, Recall: 0.375, Precision: 0.75
 Fold 50 - Number of FP: 0, FP Rate: 0.0
 Fold 51 - Number of FP: 0, FP Rate: 0.0
 Fold 52 - Number of FP: 0, FP Rate: 0.0
 Fold 53 - Number of FP: 0, FP Rate: 0.0
 Fold 54 - Number of FP: 0, FP Rate: 0.0
-Fold 55 - F1: 0.5599999999999999, Recall: 0.5384615384615384, Precision: 0.5833333333333334
-Fold 56 - Number of FP: 0, FP Rate: 0.0
+Fold 55 - F1: 0.4999999999999999, Recall: 0.46153846153846156, Precision: 0.5454545454545454
+Fold 56 - Number of FP: 2, FP Rate: 0.015503875968992248
 Fold 57 - F1: 0.0, Recall: 0.0, Precision: 0.0
 Fold 58 - F1: 0.0, Recall: 0.0, Precision: 0.0
 Fold 59 - Number of FP: 2, FP Rate: 0.015503875968992248
 Fold 60 - Number of FP: 0, FP Rate: 0.0
 Fold 61 - Number of FP: 0, FP Rate: 0.0
-Fold 62 - Number of FP: 4, FP Rate: 0.031007751937984496
-Fold 63 - Number of FP: 12, FP Rate: 0.09302325581395349
-Fold 64 - Number of FP: 2, FP Rate: 0.015503875968992248
+Fold 62 - Number of FP: 3, FP Rate: 0.023255813953488372
+Fold 63 - Number of FP: 8, FP Rate: 0.06201550387596899
+Fold 64 - Number of FP: 0, FP Rate: 0.0
 Fold 65 - Number of FP: 0, FP Rate: 0.0
 Fold 66 - Number of FP: 0, FP Rate: 0.0
 Fold 67 - Number of FP: 4, FP Rate: 0.031007751937984496
 Fold 68 - Number of FP: 0, FP Rate: 0.0
 Fold 69 - Number of FP: 0, FP Rate: 0.0
 Fold 70 - Number of FP: 0, FP Rate: 0.0
-Fold 71 - Number of FP: 2, FP Rate: 0.015503875968992248
+Fold 71 - Number of FP: 1, FP Rate: 0.007751937984496124
 Fold 72 - Number of FP: 3, FP Rate: 0.023255813953488372
 Fold 73 - Number of FP: 0, FP Rate: 0.0
-Fold 74 - Number of FP: 3, FP Rate: 0.023255813953488372
+Fold 74 - Number of FP: 1, FP Rate: 0.007751937984496124
 Fold 75 - Number of FP: 0, FP Rate: 0.0
 Fold 76 - Number of FP: 0, FP Rate: 0.0
 Fold 77 - Number of FP: 1, FP Rate: 0.007751937984496124

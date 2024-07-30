@@ -18,10 +18,10 @@ from modules.gnnad.GDN import GDN
 from modules.gnnad.utils import TimeDataset, parse_data, aggregate_error_scores, get_full_err_scores, loss_func, seed_worker
 import numpy as np
 import torch
-import pandas as pd
 from sklearn.metrics import f1_score, precision_score, recall_score
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader
 from torchsummary import summary
+import copy
 
 __author__ = ["KatieBuc"]
 
@@ -172,88 +172,34 @@ class GNNAD(GDN):
             torch.backends.cudnn.benchmark = False
     
 
-    ## get the loader generator for reproducibility
-    def _get_loader_generator(self):
-        g = torch.Generator()
-        g.manual_seed(self.random_seed)
-        return g
-
     ## load the training, validation and test data
     def make_graph(self, feature_list):
-        fc_struc = {
-            ft: [x for x in feature_list if x != ft] for ft in feature_list
-        }  # fully connected structure
-
-        edge_idx_tuples = [
-            (feature_list.index(child), feature_list.index(node_name))
-            for node_name, node_list in fc_struc.items()
-            for child in node_list
-        ] # create tuples where each tuple represents an edge between two nodes.
-
-        fc_edge_idx = [
-            [x[0] for x in edge_idx_tuples],
-            [x[1] for x in edge_idx_tuples],
-        ] # separate the tuples into two lists, one for the source node and the other for the destination node. It is done to in
-
+        n = len(feature_list)
+    
+        # Create all possible edges except self-loops
+        edge_idx = [(i, j) for i in range(n) for j in range(n) if i != j]
+        
+        # Separate into source and destination lists
+        fc_edge_idx = list(zip(*edge_idx))
+        
+        # Convert to torch tensor
         fc_edge_idx = torch.tensor(fc_edge_idx, dtype=torch.long)
+        
         return fc_edge_idx
     
+    def _load_data(self, data, mode="", y_test=None):
+        input = parse_data(data, self.input_column_names, labels=y_test)
+        input_dataset = TimeDataset(input, mode=mode, config=self.cfg)
 
-    ## Load only test data for _predict method
-    def _load_test_data(self, X_test, y_test=None):
-        test_input = parse_data(X_test, self.input_column_names, labels=y_test)
-        test_dataset = TimeDataset(test_input, mode="test", config=self.cfg)
-
-        # get data loaders
-        g = self._get_loader_generator() if self.use_deterministic else None
+        shuffle = True if mode == "train" else False
         
-        test_dataloader = DataLoader(
-            test_dataset,
+        dataloader = DataLoader(
+            input_dataset,
             batch_size=self.batch,
-            shuffle=False,
-            generator=g,
+            shuffle=shuffle,
         )
 
-        # save to self
-        self.test_dataloader = test_dataloader
-
-
-    def load_train_data(self, X_train):
-        train_subset =  X_train.iloc[: -self.validation_size]
-        validate_subset = X_train.iloc[-self.validation_size :]
-        
-        train_input = parse_data(train_subset, self.input_column_names) # output data will have number_features+1 as rows, where the last row will be the added labels 
-        val_input = parse_data(validate_subset, self.input_column_names)
-
-        train_dataset = TimeDataset(train_input, mode="train", config=self.cfg)
-        val_dataset = TimeDataset(val_input, mode="val", config=self.cfg)
-
-        g = self._get_loader_generator() if self.use_deterministic else None
-
-        train_dataloader = DataLoader(
-            train_dataset,
-            batch_size=self.batch,
-            shuffle=self.shuffle_train,
-            num_workers=0,
-            worker_init_fn=seed_worker,
-            generator=g,
-        )
-
-        validate_dataloader = DataLoader(
-            val_dataset,
-            batch_size=self.batch,
-            shuffle=False,
-            generator=g,
-        )
-
-        # save to self
-        self.train_dataloader = train_dataloader
-        self.validate_dataloader = validate_dataloader
-    
-
-    def load_saved_model(self, model_path):
-        self.load_state_dict(torch.load(model_path))
-        self.to(self.device)
+        return dataloader
 
 
     ## Make a directory to save the model
@@ -268,96 +214,85 @@ class GNNAD(GDN):
 
     ## testing function to evaluate the model
     def _test(self, dataloader):
-        test_loss_list = []
-        t_test_predicted_list = []
-        t_test_ground_list = []
-        t_test_labels_list = []
-
         self.eval()
-        for x, y, labels in dataloader:
-            x, y, labels = [
-                item.to(self.device).float() for item in [x, y, labels]
-            ] # move the variables to device
+        test_loss = 0
+        all_predicted = []
+        all_ground = []
+        all_labels = []
 
-            with torch.no_grad():
-                predicted = self(x).float()
-
+        with torch.no_grad():
+            for x, y, labels in dataloader:
+                x, y, labels = [item.to(self.device).float() for item in [x, y, labels]]
+                
+                predicted = self(x)
                 loss = loss_func(predicted, y, self.loss_func)
-
-                labels = labels.unsqueeze(1).repeat(1, predicted.shape[1])
-
-                # store results
-                t_test_predicted_list.append(predicted)
-                t_test_ground_list.append(y)
-                t_test_labels_list.append(labels)
-
-            test_loss_list.append(loss.item())
+                
+                test_loss += loss.item()
+                
+                all_predicted.append(predicted)
+                all_ground.append(y)
+                all_labels.append(labels.unsqueeze(1).repeat(1, predicted.shape[1]))
 
         # Concatenate all tensors
-        t_test_predicted_list = torch.cat(t_test_predicted_list, dim=0)
-        t_test_ground_list = torch.cat(t_test_ground_list, dim=0)
-        t_test_labels_list = torch.cat(t_test_labels_list, dim=0)
+        all_predicted = torch.cat(all_predicted, dim=0)
+        all_ground = torch.cat(all_ground, dim=0)
+        all_labels = torch.cat(all_labels, dim=0)
 
-        # Convert to lists
-        test_predicted_list = t_test_predicted_list.cpu().tolist()
-        test_ground_list = t_test_ground_list.cpu().tolist()
-        test_labels_list = t_test_labels_list.cpu().tolist()
+        # Convert to numpy arrays
+        test_predicted = all_predicted.cpu().numpy()
+        test_ground = all_ground.cpu().numpy()
+        test_labels = all_labels.cpu().numpy()
 
-        avg_loss = sum(test_loss_list) / len(test_loss_list)
+        avg_loss = test_loss / len(dataloader)
 
-        return avg_loss, np.array(
-            [test_predicted_list, test_ground_list, test_labels_list]
-        )
+        return avg_loss, np.array([test_predicted, test_ground, test_labels])
 
 
     # training method to update the model weights with early stopping using validation data
     def _train(self):
-        optimizer = torch.optim.Adam(
-            self.parameters(), lr=self.lr, weight_decay=self.decay
-        )
-
-        train_log = []
-        max_loss = 1e6
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.decay)
+        best_val_loss = float('inf')
         stop_improve_count = 0
 
-        for i_epoch in range(self.epoch):
+        for epoch in range(self.epoch):
             self.train()
+            epoch_loss = 0
 
             for x, y, _ in self.train_dataloader:
-                x, y = [
-                    item.float().to(self.device) for item in [x, y]
-                ]
+                x, y = [item.float().to(self.device) for item in [x, y]]
+                
                 optimizer.zero_grad()
-                out = self(x).float()
-
+                out = self(x)
                 loss = loss_func(out, y, self.loss_func)
                 loss.backward()
                 optimizer.step()
 
-                train_log.append(loss.item())
+                epoch_loss += loss.item()
 
-            # use val dataset to judge
-            if self.validate_dataloader is not None:
+            if self.validate_dataloader:
                 val_loss, _ = self._test(self.validate_dataloader)
-
-                if val_loss < max_loss:
+                
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
                     torch.save(self.state_dict(), self.model_path)
-                    max_loss = val_loss
                     stop_improve_count = 0
                 else:
                     stop_improve_count += 1
 
                 if stop_improve_count >= self.early_stop_win:
                     break
-
-        self.train_log = train_log
         
         # Load the best model after training
         self.load_state_dict(torch.load(self.model_path))
     
 
     def fit(self, X_train):
-        self.load_train_data(X_train)
+        self.train_set = X_train[:-self.validation_size]
+        self.validate_set = X_train[-self.validation_size:]
+
+        self.validate_dataloader = self._load_data(self.validate_set, mode="val")
+        self.train_dataloader = self._load_data(self.train_set, mode="train")
+
         self._train()
         self.get_threshold()
 
@@ -383,8 +318,7 @@ class GNNAD(GDN):
 
     ## predict method that will use only test data to get the error scores
     def predict(self, X_test, y_test=None):
-        # read in best model
-        self._load_test_data(X_test, y_test) # load only test data which will save to self
+        self.test_dataloader = self._load_data(X_test, mode="test", y_test=y_test)
 
         # store results to self
         test_avg_loss, self.test_result = self._test(self.test_dataloader)
@@ -430,3 +364,29 @@ class GNNAD(GDN):
     def summary(self):
         return summary(self.model, (self.n_nodes, self.slide_win))
 
+
+
+# ---------------------------------------------------------------------------
+
+
+def create_model_copy(original_model, model_params):
+    # Create a new instance of the model
+    new_model = GNNAD(**model_params)
+
+    # Copy the state dict of the model
+    new_model.load_state_dict(copy.deepcopy(original_model.state_dict()))
+
+    # Copy other necessary attributes
+    attributes_to_copy = [
+        'train_log', 'validate_result', 'validate_err_scores', 'threshold',
+        'threshold_i', 'test_result', 'precision', 'recall', 'f1',
+        'false_positives', 'fp_rate', 'test_err_scores', 'topk_err_indices',
+        'topk_err_scores', 'pred_labels', 'test_labels', 'test_avg_loss'
+    ]
+    
+    # Set the attributes of the new model to the same values as the original model
+    for attr in attributes_to_copy:
+        if hasattr(original_model, attr):
+            setattr(new_model, attr, copy.deepcopy(getattr(original_model, attr)))
+
+    return new_model
