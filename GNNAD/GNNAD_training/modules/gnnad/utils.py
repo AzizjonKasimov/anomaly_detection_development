@@ -17,6 +17,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset
 
+
 __author__ = ["KatieBuc"]
 
 
@@ -170,3 +171,12 @@ def seed_worker():
     worker_seed = torch.initial_seed() % 2**32
     np.random.seed(worker_seed)
     random.seed(worker_seed)
+
+
+# -------------------------------------------------------------------------------------------
+def drop_anomalous_points(df, pred_anom_list, test_set, window_size=None):
+    test_set_anomalies_idx = [i for i, x in enumerate(pred_anom_list) if x == 1] # Get the indices of the anomalies in the test set
+    df_anomalies_to_remove = test_set[window_size:].iloc[test_set_anomalies_idx] # Get the indices of the anomalies in the original dataframe. The test_set index is shifted by window_size, because the model predicts anomalies for the window_size first samples
+    df_anom_idx_list = df_anomalies_to_remove.index.to_list() # Get the indices of the anomalies in the original dataframe
+    df_filtered = df.drop(df_anom_idx_list) # Remove the anomalies from the dataframe to avoid training on them
+    return df_filtered
