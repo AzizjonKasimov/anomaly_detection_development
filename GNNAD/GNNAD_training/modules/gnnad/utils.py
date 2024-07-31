@@ -23,69 +23,46 @@ __author__ = ["KatieBuc"]
 
 class TimeDataset(Dataset):
     """
-    A PyTorch dataset class for time series data, to provide additional functionality for
-    processing time series data.
+    PyTorch dataset class for time series data processing.
 
-    Attributes
-    ----------
-    raw_data : list
-        A list of raw data
-    config : dict
-        A dictionary containing the configuration of dataset
-    edge_index : np.ndarray
-        Edge index of the dataset
-    mode : str
-        The mode of dataset, either 'train' or 'test'
-    x : torch.Tensor
-        Feature data
-    y : torch.Tensor
-        Target data
-    labels : torch.Tensor
-        Anomaly labels of the data
+    Attributes:
+    raw_data (list): Raw input data
+    config (dict): Dataset configuration
+    mode (str): 'train' or 'test' mode
+    x (torch.Tensor): Feature data
+    y (torch.Tensor): Target data
+    labels (torch.Tensor): Anomaly labels
     """
 
     def __init__(self, raw_data, mode="train", config=None):
-        self.raw_data = raw_data
         self.config = config
         self.mode = mode
 
-        # to tensor
+        # Convert raw data to tensors
         data = torch.tensor(raw_data[:-1]).double()
         labels = torch.tensor(raw_data[-1]).double()
-        self.x, self.y, self.labels = self.process(data, labels)
+        self.x, self.y, self.labels = self._process(data, labels)
 
     def __len__(self):
         return len(self.x)
 
-    def process(self, data, labels):
-        x_arr, y_arr, labels_arr = [], [], []
-        slide_win, slide_stride = self.config["slide_win"], self.config["slide_stride"]
+    def _process(self, data, labels):
+        """Process raw data into sliding windows."""
+        win, stride = self.config["slide_win"], self.config["slide_stride"]
+        total_len = data.shape[1]
         is_train = self.mode == "train"
-        total_time_len = data.shape[1]
 
-        for i in (
-            range(slide_win, total_time_len, slide_stride)
-            if is_train
-            else range(slide_win, total_time_len)
-        ):
-            ft = data[:, i - slide_win : i]
-            tar = data[:, i]
-            x_arr.append(ft)
-            y_arr.append(tar)
-            labels_arr.append(labels[i])
+        # Create sliding windows
+        indices = range(win, total_len, stride) if is_train else range(win, total_len)
+        x = [data[:, i - win : i] for i in indices]
+        y = [data[:, i] for i in indices]
+        labels = [labels[i] for i in indices]
 
-        x = torch.stack(x_arr).contiguous()
-        y = torch.stack(y_arr).contiguous()
-        labels = torch.Tensor(labels_arr).contiguous()
-
-        return x, y, labels
+        return map(torch.stack, (x, y, labels))
 
     def __getitem__(self, idx):
-        feature = self.x[idx].double()
-        y = self.y[idx].double()
-        label = self.labels[idx].double()
-
-        return feature, y, label
+        """Return a single data point."""
+        return self.x[idx].double(), self.y[idx].double(), self.labels[idx].double()
 
 
 def loss_func(y_pred, y_true, loss="mse"):
@@ -175,8 +152,16 @@ def seed_worker():
 
 # -------------------------------------------------------------------------------------------
 def drop_anomalous_points(df, pred_anom_list, test_set, window_size=None):
-    test_set_anomalies_idx = [i for i, x in enumerate(pred_anom_list) if x == 1] # Get the indices of the anomalies in the test set
-    df_anomalies_to_remove = test_set[window_size:].iloc[test_set_anomalies_idx] # Get the indices of the anomalies in the original dataframe. The test_set index is shifted by window_size, because the model predicts anomalies for the window_size first samples
-    df_anom_idx_list = df_anomalies_to_remove.index.to_list() # Get the indices of the anomalies in the original dataframe
-    df_filtered = df.drop(df_anom_idx_list) # Remove the anomalies from the dataframe to avoid training on them
+    # Get the indices of the anomalies in the test set
+    test_set_anomalies_idx = [i for i, x in enumerate(pred_anom_list) if x == 1] 
+
+    # Get the indices of the anomalies in the original dataframe. The test_set index is shifted by window_size, because the model predicts anomalies for the window_size first samples
+    df_anomalies_to_remove = test_set[window_size:].iloc[test_set_anomalies_idx] 
+
+    # Get the indices of the anomalies in the original dataframe
+    df_anom_idx_list = df_anomalies_to_remove.index.to_list() 
+
+    # Remove the anomalies from the dataframe to avoid training on them
+    df_filtered = df.drop(df_anom_idx_list) 
+    
     return df_filtered

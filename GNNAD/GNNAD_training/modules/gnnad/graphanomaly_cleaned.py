@@ -48,10 +48,8 @@ class GNNAD(GDN):
         early_stop_win: int = 15,
         lr: float = 0.001,
         shuffle_train: bool = True,
-        threshold_type: str = None,
         smoothen_error: bool = True,
         use_deterministic: bool = False,
-        percentile: int = 99,
         errors_topk: int = 1,
         loss_func: str = "mse",
         validation_size: int = None,
@@ -105,16 +103,12 @@ class GNNAD(GDN):
             Learning rate for training the model
         shuffle_train : bool, optional (default=True)
             Whether to shuffle the training data during training
-        threshold_type : str, optional (default=None)
-            Type of threshold to use for anomaly detection ("max_validation")
         suppress_print : bool, optional (default=False)
             Whether to suppress print statements during training
         smoothen_error : bool, optional (default=True)
             Whether to smoothen the anomaly scores before thresholding
         use_deterministic : bool, optional (default=False)
             Whether to use deterministic algorithms for reproducibility and unit testing
-        percentile : int, optional (default=99)
-            Percentile value to use for thresholding anomaly scores
         errors_topk : int, optional (default=1)
             Number of top errors to consider for thresholding
         loss_func : str, optional (default="mse")
@@ -140,10 +134,8 @@ class GNNAD(GDN):
         self.early_stop_win = early_stop_win
         self.lr = lr
         self.shuffle_train = shuffle_train
-        self.threshold_type = threshold_type
         self.smoothen_error = smoothen_error
         self.use_deterministic = use_deterministic
-        self.percentile = percentile
         self.errors_topk = errors_topk
         self.loss_func = loss_func
         self.validation_size = validation_size
@@ -286,7 +278,11 @@ class GNNAD(GDN):
         self.load_state_dict(torch.load(self.model_path))
     
 
-    def fit(self, X_train):
+    def fit(self, X_train, time_index=None):
+        # save time index to self for setting threshold based on time
+        valid_size = self.validation_size - self.slide_win
+        self.val_time_index = time_index[-valid_size:]
+
         self.train_set = X_train[:-self.validation_size]
         self.validate_set = X_train[-self.validation_size:]
 
@@ -302,22 +298,43 @@ class GNNAD(GDN):
 
         # get stacked array of error scores
         validate_err_scores = get_full_err_scores(self.validate_result, self.smoothen_error)
+        _, topk_val_err_scores = aggregate_error_scores(validate_err_scores, topk=self.errors_topk)
 
-        # get threshold value
-        if self.threshold_type == "percentile":
-            _, topk_val_err_scores = aggregate_error_scores(validate_err_scores, topk=self.errors_topk)
-            threshold = np.percentile(topk_val_err_scores, self.percentile)
-        elif self.threshold_type == "max_validation":
-            _, topk_val_err_scores = aggregate_error_scores(validate_err_scores, topk=self.errors_topk)
-            threshold = np.max(topk_val_err_scores)
+        # Create 24 separate lists for error scores, one for each hour
+        hourly_err_scores = [[] for _ in range(24)]
+
+        for i, timestamp in enumerate(self.val_time_index):
+            hour = timestamp.hour
+            hourly_err_scores[hour].append(topk_val_err_scores[i])
+
+        # Calculate threshold for each hour
+        self.hourly_thresholds = []
+        all_scores = []  # Collect all scores for fallback threshold
+
+        for hour_scores in hourly_err_scores:
+            if hour_scores:  # If we have data for this hour
+                all_scores.extend(hour_scores)
+                threshold = np.max(hour_scores)
+            else:
+                threshold = None  # Placeholder for hours with no data
+            self.hourly_thresholds.append(threshold)
+
+        # Calculate fallback threshold using all available scores
+        fallback_threshold = np.max(all_scores)
+
+        # Replace None values with fallback threshold
+        self.hourly_thresholds = [
+            fallback_threshold if threshold is None else threshold
+            for threshold in self.hourly_thresholds
+        ]
 
         self.validate_err_scores = validate_err_scores
-        self.threshold = threshold
-        self.threshold_i = threshold # for plots
 
 
     ## predict method that will use only test data to get the error scores
-    def predict(self, X_test, y_test=None):
+    def predict(self, X_test, time_index=None, y_test=None):
+        time_index = time_index[self.slide_win-1:]
+        
         self.test_dataloader = self._load_data(X_test, mode="test", y_test=y_test)
 
         # store results to self
@@ -327,9 +344,12 @@ class GNNAD(GDN):
         test_err_scores = get_full_err_scores(self.test_result, self.smoothen_error)
         topk_err_indices, topk_err_scores = aggregate_error_scores(test_err_scores, topk=self.errors_topk)
 
-        # get prediction labels for decided threshold
+        # get prediction labels using hourly thresholds
         pred_labels = np.zeros(len(topk_err_scores))
-        pred_labels[topk_err_scores > self.threshold] = 1
+        for i, (score, timestamp) in enumerate(zip(topk_err_scores, time_index)):
+            hour = timestamp.hour
+            threshold = self.hourly_thresholds[hour]
+            pred_labels[i] = 1 if score > threshold else 0
 
         pred_labels = pred_labels.astype(int)
         test_labels = test_labels.astype(int)
