@@ -1,4 +1,8 @@
 from matplotlib import pyplot as plt
+import pywt
+import numpy as np
+import pandas as pd
+from scipy.signal import savgol_filter
 
 def plot_feature_with_anomalies(data, feature):
     """
@@ -51,22 +55,27 @@ def remove_outliers(data, lower_percentile=0.02, upper_percentile=0.98):
     data['Fault'] = fault_col # Assign the 'Fault' column back to the capped data
     return data
 
-def remove_outliers_iqr(df):  
-    """ Remove outliers from the data using the IQR method""" 
 
-    fault_col = df['Fault'] # Extract the 'Fault' column to a separate variable
+def wavelet_denoise(data, wavelet='sym8', level=3):
+    data = data.values
 
-    for column in df.columns:
-        Q1 = df[column].quantile(0.25)
-        Q3 = df[column].quantile(0.75)
-        IQR = Q3 - Q1
+    # Decompose the signal
+    coeff = pywt.wavedec(data, wavelet, mode="per")
+    
+    # Calculate the threshold
+    sigma = (1/0.6745) * np.median(np.abs(coeff[-level] - np.median(coeff[-level])))
+    threshold = sigma * np.sqrt(2 * np.log(len(data)))
+    
+    # Apply thresholding
+    coeff[1:] = [pywt.threshold(i, value=threshold, mode="soft") for i in coeff[1:]]
+    
+    # Reconstruct the signal
+    return pywt.waverec(coeff, wavelet, mode="per")
 
-        lower_bound = Q1 - 1.5 * IQR
-        upper_bound = Q3 + 1.5 * IQR
 
-        df[column] = df[column].clip(lower=lower_bound, upper=upper_bound)
+def savitzky_golay(data, window_length=4, polyorder=1):
+    return pd.Series(savgol_filter(data, window_length, polyorder), index=data.index)
 
 
-    df['Fault'] = fault_col # Assign the 'Fault' column back to the capped data
-
-    return df
+def rolling_median_filter(data, window=5):
+    return data.rolling(window=window, center=True, min_periods=1).median()
