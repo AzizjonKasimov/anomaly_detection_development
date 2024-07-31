@@ -62,14 +62,13 @@ class GraphLayer(MessagePassing):
         heads=1,
         concat_heads=True,
         negative_slope=0.2,
-        dropout=0,
+        dropout=0.1,
     ):
         super(GraphLayer, self).__init__(aggr="add", node_dim=0)
 
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.heads = heads
-        self.concat_heads = concat_heads
         self.negative_slope = negative_slope
         self.dropout = dropout
 
@@ -115,6 +114,7 @@ class GraphLayer(MessagePassing):
         # linearly transform node feature matrix
         assert torch.is_tensor(x)
         x = self.lin(x)
+        x = nn.Dropout(p=self.dropout)(x)
 
         # add self loops, nodes are in dim 0 of x
         edge_index, _ = remove_self_loops(edge_index)
@@ -287,11 +287,14 @@ class GNNLayer(nn.Module):
         self.gnn = GraphLayer(in_channel, out_channel, heads=heads, concat_heads=False)
         self.bn = nn.BatchNorm1d(out_channel)
         self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(0.1)
 
     def forward(self, x, edge_index, embedding=None):
         out = self.gnn(x, edge_index, embedding)
         out = self.bn(out)
-        return self.relu(out)
+        out = self.relu(out)
+        out = self.dropout(out)
+        return out
 
 
 class GDN(nn.Module):
@@ -370,7 +373,7 @@ class GDN(nn.Module):
             self.embed_dim, self.out_layer_num, inter_dim=self.out_layer_inter_dim
         )
 
-        self.dp = nn.Dropout(0.2)
+        self.dp = nn.Dropout(0.1)
         nn.init.kaiming_uniform_(self.embedding.weight, a=math.sqrt(5))
 
     def forward(self, data):
@@ -421,6 +424,7 @@ class GDN(nn.Module):
             batch_gated_edge_index,
             embedding=batch_embeddings,
         )
+        gcn_out = self.dp(gcn_out)
         gcn_out = gcn_out.view(
             batch_size, self.n_nodes, -1
         )  # [batch_size, N, embed_dim]
