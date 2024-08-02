@@ -15,7 +15,7 @@ import random
 from pathlib import Path
 
 from modules.gnnad.GDN import GDN
-from modules.gnnad.utils import TimeDataset, parse_data, aggregate_error_scores, get_full_err_scores, loss_func, seed_worker
+from modules.gnnad.utils import TimeDataset, parse_data, aggregate_error_scores, get_full_err_scores, loss_func
 import numpy as np
 import torch
 from sklearn.metrics import f1_score, precision_score, recall_score
@@ -357,14 +357,14 @@ class GNNAD(GDN):
         # if test_labels are not all zeros, calculate metrics
         if not all(element == 0 for element in test_labels):
             # calculate metrics
-            precision = precision_score(test_labels, pred_labels)
-            recall = recall_score(test_labels, pred_labels)
-            f1 = None
-            f1 = f1_score(test_labels, pred_labels) if f1 is None else f1
-
-            self.precision = precision
-            self.recall = recall
-            self.f1 = f1
+            self.precision = precision_score(test_labels, pred_labels)
+            self.recall = recall_score(test_labels, pred_labels)
+            self.f1 = f1_score(test_labels, pred_labels)
+            
+            # calculate false positives and false positive rate
+            fp_predictions = np.logical_and(pred_labels == 1, test_labels == 0)
+            self.false_positives = np.sum(fp_predictions)
+            self.fp_rate = self.false_positives / len(test_labels)
 
         else: # if all test_labels are zeros
             self.false_positives = np.sum(pred_labels == 1)
