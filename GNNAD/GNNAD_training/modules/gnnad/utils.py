@@ -162,6 +162,6 @@ def drop_anomalous_points(df, pred_anom_list, test_set, window_size=None):
     df_anom_idx_list = df_anomalies_to_remove.index.to_list() 
 
     # Remove the anomalies from the dataframe to avoid training on them
-    df_filtered = df.drop(df_anom_idx_list) 
-    
+    df_filtered = df.drop(df_anom_idx_list)
+
     return df_filtered
