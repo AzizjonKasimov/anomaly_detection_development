@@ -77,3 +77,57 @@ def plot_time_series_with_anomalies(dataset, ground_labels, predictions):
 
     plt.tight_layout()
     plt.show()
+
+
+import matplotlib.dates as mdates
+
+def plot_predictions_and_anomalies(ground_values, predicted_values, ground_labels, predicted_labels):
+    n_features = predicted_values.shape[1]
+    
+    # Create a figure with n_features + 1 subplots (one for each feature plus one for ground truth labels)
+    fig, axs = plt.subplots(n_features + 1, 1, figsize=(5, 1.5 * (n_features + 1)), sharex=True)
+    
+    # Get the time index
+    time_index = ground_labels.index
+    columns = ground_values.columns
+    
+    # Plot each feature
+    for i in range(n_features):
+        ax = axs[i]
+        
+        # Plot ground values and predicted values
+        ax.plot(time_index, ground_values.iloc[:, i], label='Ground Value', color='blue')
+        ax.plot(time_index, predicted_values.iloc[:, i], label='Predicted Value', color='orange')
+        
+        # Highlight predicted anomalies
+        anomaly_indices = np.where(predicted_labels)[0]
+        ax.scatter(time_index[anomaly_indices], 
+                   ground_values.iloc[anomaly_indices, i], 
+                   color='red', label='Predicted Anomaly')
+        
+        ax.set_title(f'{columns[i]}')
+        ax.legend(prop={'size': 5})
+        ax.grid(True)
+        
+        # Rotate and align the tick labels so they look better
+        ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
+        plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+    
+    # Plot ground truth labels in the last subplot
+    ax = axs[-1]
+    ax.plot(time_index, ground_labels, label='Ground Truth Labels', color='green')
+    ax.set_ylim(-0.1, 1.1)
+    ax.set_yticks([0, 1])
+    ax.set_yticklabels(['Normal', 'Anomaly'])
+    ax.set_title('Ground Truth Labels')
+    ax.legend(prop={'size': 6})
+    ax.grid(True)
+    
+    # Rotate and align the tick labels so they look better
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right', fontsize=6)
+    
+    plt.tight_layout()
+    plt.show()

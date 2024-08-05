@@ -165,3 +165,16 @@ def drop_anomalous_points(df, pred_anom_list, test_set, window_size=None):
     df_filtered = df.drop(df_anom_idx_list)
 
     return df_filtered
+
+def test_set_windows(test_set, window_size):
+    # Create a list to store the test sets
+    windows_list = []
+
+    # Iterate over the range of dates
+    for i in range(len(test_set) - window_size):
+        # Get the data for the window
+        window = test_set.iloc[i:i+window_size+1]
+
+        windows_list.append(window)
+
+    return windows_list

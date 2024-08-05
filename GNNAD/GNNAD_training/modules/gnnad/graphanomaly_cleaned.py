@@ -183,7 +183,7 @@ class GNNAD(GDN):
         input = parse_data(data, self.input_column_names, labels=y_test)
         input_dataset = TimeDataset(input, mode=mode, config=self.cfg)
 
-        shuffle = True if mode == "train" else False
+        shuffle = self.shuffle_train if mode == "train" else False
         
         dataloader = DataLoader(
             input_dataset,
@@ -333,7 +333,7 @@ class GNNAD(GDN):
 
     ## predict method that will use only test data to get the error scores
     def predict(self, X_test, time_index=None, y_test=None):
-        time_index = time_index[self.slide_win-1:]
+        time_index = time_index[self.slide_win:]
         
         self.test_dataloader = self._load_data(X_test, mode="test", y_test=y_test)
 
@@ -344,6 +344,9 @@ class GNNAD(GDN):
         test_err_scores = get_full_err_scores(self.test_result, self.smoothen_error)
         topk_err_indices, topk_err_scores = aggregate_error_scores(test_err_scores, topk=self.errors_topk)
 
+        if len(time_index) != len(topk_err_scores):
+            print(f"Warning: time_index length ({len(time_index)}) does not match topk_err_scores length ({len(topk_err_scores)})")
+
         # get prediction labels using hourly thresholds
         pred_labels = np.zeros(len(topk_err_scores))
         for i, (score, timestamp) in enumerate(zip(topk_err_scores, time_index)):
@@ -353,22 +356,6 @@ class GNNAD(GDN):
 
         pred_labels = pred_labels.astype(int)
         test_labels = test_labels.astype(int)
-        
-        # if test_labels are not all zeros, calculate metrics
-        if not all(element == 0 for element in test_labels):
-            # calculate metrics
-            self.precision = precision_score(test_labels, pred_labels)
-            self.recall = recall_score(test_labels, pred_labels)
-            self.f1 = f1_score(test_labels, pred_labels)
-            
-            # calculate false positives and false positive rate
-            fp_predictions = np.logical_and(pred_labels == 1, test_labels == 0)
-            self.false_positives = np.sum(fp_predictions)
-            self.fp_rate = self.false_positives / len(test_labels)
-
-        else: # if all test_labels are zeros
-            self.false_positives = np.sum(pred_labels == 1)
-            self.fp_rate = self.false_positives / len(test_labels)
 
         # save to self
         self.test_err_scores = test_err_scores
@@ -401,7 +388,7 @@ def create_model_copy(original_model, model_params):
         'train_log', 'validate_result', 'validate_err_scores', 'threshold',
         'threshold_i', 'test_result', 'precision', 'recall', 'f1',
         'false_positives', 'fp_rate', 'test_err_scores', 'topk_err_indices',
-        'topk_err_scores', 'pred_labels', 'test_labels', 'test_avg_loss'
+        'topk_err_scores', 'pred_labels', 'test_labels', 'test_avg_loss', 'hourly_thresholds'
     ]
     
     # Set the attributes of the new model to the same values as the original model
