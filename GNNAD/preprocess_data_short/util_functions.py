@@ -60,7 +60,7 @@ def resample_data(df, interval='10min'):
     'diffuse_tilted_irradiance': 'mean',
     'ambient_temperature': 'mean',
     'panel_temperature': 'mean',
-    'energy_injected': 'sum',
+    'energy_injected': 'mean',
     'power_injected': 'mean',
     'ambient_current': 'mean',
     'current_injected': 'mean',
