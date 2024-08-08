@@ -15,12 +15,10 @@ import random
 from pathlib import Path
 
 from modules.gnnad.GDN import GDN
-from modules.gnnad.utils import TimeDataset, parse_data, aggregate_error_scores, get_full_err_scores, loss_func
+from modules.gnnad.utils import TimeDataset, aggregate_error_scores, get_full_err_scores, loss_func
 import numpy as np
 import torch
-from sklearn.metrics import f1_score, precision_score, recall_score
 from torch.utils.data import DataLoader
-from torchsummary import summary
 import copy
 
 __author__ = ["KatieBuc"]
@@ -52,6 +50,7 @@ class GNNAD(GDN):
         use_deterministic: bool = False,
         errors_topk: int = 1,
         loss_func: str = "mse",
+        threshold_multiplier: float = 1.2,
         validation_size: int = None,
         input_column_names: list = None,
     ):
@@ -103,8 +102,6 @@ class GNNAD(GDN):
             Learning rate for training the model
         shuffle_train : bool, optional (default=True)
             Whether to shuffle the training data during training
-        suppress_print : bool, optional (default=False)
-            Whether to suppress print statements during training
         smoothen_error : bool, optional (default=True)
             Whether to smoothen the anomaly scores before thresholding
         use_deterministic : bool, optional (default=False)
@@ -139,6 +136,7 @@ class GNNAD(GDN):
         self.errors_topk = errors_topk
         self.loss_func = loss_func
         self.validation_size = validation_size
+        self.threshold_multiplier = threshold_multiplier
         self.cfg = {
             "slide_win": self.slide_win,
             "slide_stride": self.slide_stride,
@@ -179,8 +177,8 @@ class GNNAD(GDN):
         
         return fc_edge_idx
     
-    def _load_data(self, data, mode="", y_test=None):
-        input = parse_data(data, self.input_column_names, labels=y_test)
+    def _load_data(self, data, mode=""):
+        input = data[self.input_column_names].T.values.tolist()
         input_dataset = TimeDataset(input, mode=mode, config=self.cfg)
 
         shuffle = self.shuffle_train if mode == "train" else False
@@ -210,11 +208,10 @@ class GNNAD(GDN):
         test_loss = 0
         all_predicted = []
         all_ground = []
-        all_labels = []
 
         with torch.no_grad():
-            for x, y, labels in dataloader:
-                x, y, labels = [item.to(self.device).float() for item in [x, y, labels]]
+            for x, y in dataloader:
+                x, y = [item.to(self.device).float() for item in [x, y]]
                 
                 predicted = self(x)
                 loss = loss_func(predicted, y, self.loss_func)
@@ -223,25 +220,21 @@ class GNNAD(GDN):
                 
                 all_predicted.append(predicted)
                 all_ground.append(y)
-                all_labels.append(labels.unsqueeze(1).repeat(1, predicted.shape[1]))
 
         # Concatenate all tensors
         all_predicted = torch.cat(all_predicted, dim=0)
         all_ground = torch.cat(all_ground, dim=0)
-        all_labels = torch.cat(all_labels, dim=0)
 
         # Convert to numpy arrays
         test_predicted = all_predicted.cpu().numpy()
         test_ground = all_ground.cpu().numpy()
-        test_labels = all_labels.cpu().numpy()
-
         avg_loss = test_loss / len(dataloader)
 
-        return avg_loss, np.array([test_predicted, test_ground, test_labels])
+        return avg_loss, np.array([test_predicted, test_ground])
 
 
     # training method to update the model weights with early stopping using validation data
-    def _train(self):
+    def _train(self, train_dataloader, val_dataloader):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.decay)
         best_val_loss = float('inf')
         stop_improve_count = 0
@@ -250,7 +243,7 @@ class GNNAD(GDN):
             self.train()
             epoch_loss = 0
 
-            for x, y, _ in self.train_dataloader:
+            for x, y in train_dataloader:
                 x, y = [item.float().to(self.device) for item in [x, y]]
                 
                 optimizer.zero_grad()
@@ -261,8 +254,8 @@ class GNNAD(GDN):
 
                 epoch_loss += loss.item()
 
-            if self.validate_dataloader:
-                val_loss, _ = self._test(self.validate_dataloader)
+            if val_dataloader:
+                val_loss, _ = self._test(val_dataloader)
                 
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
@@ -281,65 +274,72 @@ class GNNAD(GDN):
     def fit(self, X_train, time_index=None):
         # save time index to self for setting threshold based on time
         valid_size = self.validation_size - self.slide_win
-        self.val_time_index = time_index[-valid_size:]
+        val_time_index = time_index[-valid_size:]
 
-        self.train_set = X_train[:-self.validation_size]
-        self.validate_set = X_train[-self.validation_size:]
+        train_set = X_train[:-self.validation_size]
+        validate_set = X_train[-self.validation_size:]
 
-        self.validate_dataloader = self._load_data(self.validate_set, mode="val")
-        self.train_dataloader = self._load_data(self.train_set, mode="train")
+        val_dataloader = self._load_data(validate_set, mode="val")
+        train_dataloader = self._load_data(train_set, mode="train")
 
-        self._train()
-        self.get_threshold()
+        self._train(train_dataloader, val_dataloader)
+        self.thresholds_yellow = torch.tensor(self.get_threshold(val_dataloader, val_time_index, multiplier=1.0))
+        self.thresholds_red = torch.tensor(self.get_threshold(val_dataloader, val_time_index, multiplier=self.threshold_multiplier))
+
+        self.save_model()
 
 
-    def get_threshold(self):
-        _, self.validate_result = self._test(self.validate_dataloader)
+
+    def get_threshold(self, val_loader, val_time_index, multiplier=1.2):  # Add a multiplier parameter with a default value
+        
+        _, validate_result = self._test(val_loader)
 
         # get stacked array of error scores
-        validate_err_scores = get_full_err_scores(self.validate_result, self.smoothen_error)
+        validate_err_scores = get_full_err_scores(validate_result, self.smoothen_error)
         _, topk_val_err_scores = aggregate_error_scores(validate_err_scores, topk=self.errors_topk)
 
         # Create 24 separate lists for error scores, one for each hour
         hourly_err_scores = [[] for _ in range(24)]
 
-        for i, timestamp in enumerate(self.val_time_index):
+        for i, timestamp in enumerate(val_time_index):
             hour = timestamp.hour
             hourly_err_scores[hour].append(topk_val_err_scores[i])
 
         # Calculate threshold for each hour
-        self.hourly_thresholds = []
+        hourly_thresholds = []
         all_scores = []  # Collect all scores for fallback threshold
 
         for hour_scores in hourly_err_scores:
             if hour_scores:  # If we have data for this hour
                 all_scores.extend(hour_scores)
-                threshold = np.max(hour_scores)
+                threshold = np.max(hour_scores) * multiplier  # Apply multiplier here
             else:
                 threshold = None  # Placeholder for hours with no data
-            self.hourly_thresholds.append(threshold)
+            hourly_thresholds.append(threshold)
 
         # Calculate fallback threshold using all available scores
         fallback_threshold = np.max(all_scores)
 
         # Replace None values with fallback threshold
-        self.hourly_thresholds = [
+        hourly_thresholds = [
             fallback_threshold if threshold is None else threshold
-            for threshold in self.hourly_thresholds
+            for threshold in hourly_thresholds
         ]
 
         self.validate_err_scores = validate_err_scores
 
+        return hourly_thresholds
+
 
     ## predict method that will use only test data to get the error scores
-    def predict(self, X_test, time_index=None, y_test=None):
+    def predict(self, X_test, time_index=None):
+
         time_index = time_index[self.slide_win:]
         
-        self.test_dataloader = self._load_data(X_test, mode="test", y_test=y_test)
+        test_dataloader = self._load_data(X_test, mode="test")
 
         # store results to self
-        test_avg_loss, self.test_result = self._test(self.test_dataloader)
-        test_labels = self.test_result[2, :, 0]
+        test_avg_loss, self.test_result = self._test(test_dataloader)
         
         test_err_scores = get_full_err_scores(self.test_result, self.smoothen_error)
         topk_err_indices, topk_err_scores = aggregate_error_scores(test_err_scores, topk=self.errors_topk)
@@ -348,28 +348,48 @@ class GNNAD(GDN):
             print(f"Warning: time_index length ({len(time_index)}) does not match topk_err_scores length ({len(topk_err_scores)})")
 
         # get prediction labels using hourly thresholds
-        pred_labels = np.zeros(len(topk_err_scores))
+        pred_labels_yellow = np.zeros(len(topk_err_scores))
+        pred_labels_red = np.zeros(len(topk_err_scores))
+
         for i, (score, timestamp) in enumerate(zip(topk_err_scores, time_index)):
             hour = timestamp.hour
-            threshold = self.hourly_thresholds[hour]
-            pred_labels[i] = 1 if score > threshold else 0
+            threshold_yellow = self.thresholds_yellow[hour]
+            threshold_red = self.thresholds_red[hour]
 
-        pred_labels = pred_labels.astype(int)
-        test_labels = test_labels.astype(int)
+            pred_labels_yellow[i] = 1 if score > threshold_yellow else 0
+            pred_labels_red[i] = 1 if score > threshold_red else 0
+
+
+        pred_labels_yellow = pred_labels_yellow.astype(int)
+        pred_labels_red = pred_labels_red.astype(int)
 
         # save to self
         self.test_err_scores = test_err_scores
         self.topk_err_indices = topk_err_indices
         self.topk_err_scores = topk_err_scores
-        self.pred_labels = pred_labels
-        self.test_labels = test_labels
+        self.pred_labels_yellow = pred_labels_yellow
+        self.pred_labels_red = pred_labels_red
         self.test_avg_loss = test_avg_loss
 
-        return pred_labels
+        return pred_labels_red
+    
+    def save_model(self, path='weights/last_trained_model.pt'):
+        state = {
+            'model_state_dict': self.state_dict(),
+            'thresholds_yellow': self.thresholds_yellow,
+            'thresholds_red': self.thresholds_red,
+            'validate_err_scores': self.validate_err_scores,
+            # Add any other attributes you want to save
+        }
+        torch.save(state, path)
 
-
-    def summary(self):
-        return summary(self.model, (self.n_nodes, self.slide_win))
+    def load_model(self, path='weights/last_trained_model.pt'):
+        state = torch.load(path, map_location=self.device)
+        self.load_state_dict(state['model_state_dict'])
+        self.thresholds_yellow = state['thresholds_yellow']
+        self.thresholds_red = state['thresholds_red']
+        self.validate_err_scores = state['validate_err_scores']
+        # Load any other attributes you saved
 
 
 
@@ -388,7 +408,7 @@ def create_model_copy(original_model, model_params):
         'train_log', 'validate_result', 'validate_err_scores', 'threshold',
         'threshold_i', 'test_result', 'precision', 'recall', 'f1',
         'false_positives', 'fp_rate', 'test_err_scores', 'topk_err_indices',
-        'topk_err_scores', 'pred_labels', 'test_labels', 'test_avg_loss', 'hourly_thresholds'
+        'topk_err_scores', 'pred_labels', 'test_labels', 'test_avg_loss', 'thresholds_yellow', 'thresholds_red'
     ]
     
     # Set the attributes of the new model to the same values as the original model

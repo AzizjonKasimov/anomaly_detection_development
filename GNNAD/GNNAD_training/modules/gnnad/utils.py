@@ -31,7 +31,6 @@ class TimeDataset(Dataset):
     mode (str): 'train' or 'test' mode
     x (torch.Tensor): Feature data
     y (torch.Tensor): Target data
-    labels (torch.Tensor): Anomaly labels
     """
 
     def __init__(self, raw_data, mode="train", config=None):
@@ -39,14 +38,14 @@ class TimeDataset(Dataset):
         self.mode = mode
 
         # Convert raw data to tensors
-        data = torch.tensor(raw_data[:-1]).double()
-        labels = torch.tensor(raw_data[-1]).double()
-        self.x, self.y, self.labels = self._process(data, labels)
+        data = torch.tensor(raw_data).double()
+
+        self.x, self.y = self._process(data)
 
     def __len__(self):
         return len(self.x)
 
-    def _process(self, data, labels):
+    def _process(self, data):
         """Process raw data into sliding windows."""
         win, stride = self.config["slide_win"], self.config["slide_stride"]
         total_len = data.shape[1]
@@ -56,13 +55,12 @@ class TimeDataset(Dataset):
         indices = range(win, total_len, stride) if is_train else range(win, total_len)
         x = [data[:, i - win : i] for i in indices]
         y = [data[:, i] for i in indices]
-        labels = [labels[i] for i in indices]
 
-        return map(torch.stack, (x, y, labels))
+        return map(torch.stack, (x, y))
 
     def __getitem__(self, idx):
         """Return a single data point."""
-        return self.x[idx].double(), self.y[idx].double(), self.labels[idx].double()
+        return self.x[idx].double(), self.y[idx].double()
 
 
 def loss_func(y_pred, y_true, loss="mse"):
@@ -71,18 +69,6 @@ def loss_func(y_pred, y_true, loss="mse"):
     elif loss == "mae":
         loss_func = F.l1_loss(y_pred, y_true, reduction="mean")
     return loss_func
-
-
-def parse_data(data, feature_list, labels=None):
-    """
-    In the case of training data, fill the last column with zeros. This is an
-    implicit assumption in the uhnsupervised training case - that the data is
-    non-anomalous. For the test data, keep the labels.
-    """
-    labels = [0] * data.shape[0] if labels is None else labels
-    res = data[feature_list].T.values.tolist()
-    res.append(labels)
-    return res
 
 
 def get_full_err_scores(test_result, smoothen_error=True):
@@ -143,38 +129,3 @@ def aggregate_error_scores(err_scores, topk=1):
 
     return topk_indices, topk_err_scores
 
-
-def seed_worker():
-    worker_seed = torch.initial_seed() % 2**32
-    np.random.seed(worker_seed)
-    random.seed(worker_seed)
-
-
-# -------------------------------------------------------------------------------------------
-def drop_anomalous_points(df, pred_anom_list, test_set, window_size=None):
-    # Get the indices of the anomalies in the test set
-    test_set_anomalies_idx = [i for i, x in enumerate(pred_anom_list) if x == 1] 
-
-    # Get the indices of the anomalies in the original dataframe. The test_set index is shifted by window_size, because the model predicts anomalies for the window_size first samples
-    df_anomalies_to_remove = test_set[window_size:].iloc[test_set_anomalies_idx] 
-
-    # Get the indices of the anomalies in the original dataframe
-    df_anom_idx_list = df_anomalies_to_remove.index.to_list() 
-
-    # Remove the anomalies from the dataframe to avoid training on them
-    df_filtered = df.drop(df_anom_idx_list)
-
-    return df_filtered
-
-def test_set_windows(test_set, window_size):
-    # Create a list to store the test sets
-    windows_list = []
-
-    # Iterate over the range of dates
-    for i in range(len(test_set) - window_size):
-        # Get the data for the window
-        window = test_set.iloc[i:i+window_size+1]
-
-        windows_list.append(window)
-
-    return windows_list
