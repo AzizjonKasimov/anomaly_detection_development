@@ -28,73 +28,58 @@ def test_set_windows(test_set, window_size):
 
     return windows_list
 
+def process_anomalies(model, predictions, threshold, anomaly_dict, time_index, exclude_set=None):
+    anomaly_timestamps = []
+    for i, pred in enumerate(predictions):
+        if pred == 1:
+            timestamp = time_index[i]
+            if exclude_set and timestamp in exclude_set:
+                continue
+            err_scores = model.test_err_scores[:, i]
+            unusual_features = [
+                model.input_column_names[j] 
+                for j, score in enumerate(err_scores) 
+                if score > threshold[j]
+            ]
+            for feature in unusual_features:
+                anomaly_dict.setdefault(feature, []).append(timestamp)
+            anomaly_timestamps.append(i)
+    return anomaly_dict, anomaly_timestamps
+
+def timestamp_to_string(timestamp):
+    return timestamp.strftime("%Y%m%d%H%M%S")
+
 def get_anomalies_by_feature(model, pred_labels_yellow, pred_labels_red, time_index):
     time_index = time_index[model.slide_win:]
-    yellow_anomalies = {}
-    red_anomalies = {}
-
-    # Calculate percentiles of error scores for each feature from validation set
     error_thresholds_yellow = np.percentile(model.validate_err_scores, 90, axis=1)
     error_thresholds_red = np.max(model.validate_err_scores, axis=1) * model.threshold_multiplier
 
-    # Set to keep track of timestamps already classified as red anomalies
-    red_timestamps = set()
+    red_anomalies, red_indices = process_anomalies(model, pred_labels_red, error_thresholds_red, {}, time_index)
+    red_timestamps = set(timestamp for timestamps in red_anomalies.values() for timestamp in timestamps)
+    yellow_anomalies, yellow_indices = process_anomalies(model, pred_labels_yellow, error_thresholds_yellow, {}, time_index, red_timestamps)
 
-    # First, process red anomalies
-    for i, red in enumerate(pred_labels_red):
-        if red == 1:
-            timestamp = time_index[i]
-            red_timestamps.add(timestamp)
-            err_scores = model.test_err_scores[:, i]
-            
-            # Identify features with unusually high error scores
-            unusual_features = [
-                model.input_column_names[j] 
-                for j, score in enumerate(err_scores) 
-                if score > error_thresholds_red[j]
-            ]
+    all_anomaly_indices = red_indices + yellow_indices
 
-            for feature in unusual_features:
-                if feature not in red_anomalies:
-                    red_anomalies[feature] = []
-                red_anomalies[feature].append(timestamp)
-
-    # Then, process yellow anomalies, excluding those already classified as red
-    for i, yellow in enumerate(pred_labels_yellow):
-        if yellow == 1:
-            timestamp = time_index[i]
-            # Skip if this timestamp is already classified as a red anomaly
-            if timestamp in red_timestamps:
-                continue
-
-            err_scores = model.test_err_scores[:, i]
-            
-            # Identify features with unusually high error scores
-            unusual_features = [
-                model.input_column_names[j] 
-                for j, score in enumerate(err_scores) 
-                if score > error_thresholds_yellow[j]
-            ]
-
-            for feature in unusual_features:
-                if feature not in yellow_anomalies:
-                    yellow_anomalies[feature] = []
-                yellow_anomalies[feature].append(timestamp)
-
-    # return the output in the right format
-    if yellow_anomalies == {} and red_anomalies == {}:
-        output = {"result": False,
-                  "anomalies": {"yellow": bool(yellow_anomalies), 
-                                "red": bool(red_anomalies),
-                                "yellow_anomalies": yellow_anomalies,
-                                "red_anomalies": red_anomalies}}
+    if all_anomaly_indices:
+        anomaly_scores = model.test_err_scores[:, all_anomaly_indices]
+        anomaly_score = float(np.mean(anomaly_scores))
     else:
-        output = {"result": True,
-                  "anomalies": {"yellow": bool(yellow_anomalies), 
-                                "red": bool(red_anomalies),
-                                "yellow_anomalies": yellow_anomalies,
-                                "red_anomalies": red_anomalies
-                                    }
-                    }
+        anomaly_score = 0.0
+
+    # Convert timestamps to string format
+    for color in [red_anomalies, yellow_anomalies]:
+        for feature, timestamps in color.items():
+            color[feature] = [timestamp_to_string(ts) for ts in timestamps]
+
+    output = {
+        "result": bool(yellow_anomalies or red_anomalies),
+        "anomaly_score": anomaly_score,
+        "anomalies": {
+            "yellow": bool(yellow_anomalies),
+            "red": bool(red_anomalies),
+            "yellow_anomalies": yellow_anomalies,
+            "red_anomalies": red_anomalies
+        }
+    }
 
     return output
