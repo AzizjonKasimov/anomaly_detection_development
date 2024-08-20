@@ -1,4 +1,3 @@
-import numpy as np
 
 def drop_anomalous_points(df, pred_anom_list, test_set, window_size=None):
     # Get the indices of the anomalies in the test set
@@ -28,13 +27,29 @@ def test_set_windows(test_set, window_size):
 
     return windows_list
 
-def process_anomalies(model, predictions, threshold, anomaly_dict, time_index, exclude_set=None):
-    anomaly_timestamps = []
+
+def calculate_weighted_anomaly_density(only_red, only_yellow, time_index):
+    if (only_red == 1).sum() == 0 and (only_yellow == 1).sum() == 0:
+        return 0.0
+
+    total_points = len(time_index)
+    
+    # Count red and yellow anomalies
+    red_count = (only_red == 1).sum()
+    yellow_count = (only_yellow == 1).sum()
+    
+    # Calculate weighted sum (red has full weight, yellow has half weight)
+    weighted_sum = red_count + 0.5 * yellow_count
+    
+    # Calculate weighted density
+    weighted_density = weighted_sum / total_points
+    
+    return weighted_density
+
+def process_anomalies(model, predictions, threshold, anomaly_dict, time_index):
     for i, pred in enumerate(predictions):
         if pred == 1:
             timestamp = time_index[i]
-            if exclude_set and timestamp in exclude_set:
-                continue
             err_scores = model.test_err_scores[:, i]
             unusual_features = [
                 model.input_column_names[j] 
@@ -43,40 +58,40 @@ def process_anomalies(model, predictions, threshold, anomaly_dict, time_index, e
             ]
             for feature in unusual_features:
                 anomaly_dict.setdefault(feature, []).append(timestamp)
-            anomaly_timestamps.append(i)
-    return anomaly_dict, anomaly_timestamps
+    return anomaly_dict
 
 def timestamp_to_string(timestamp):
     return timestamp.strftime("%Y%m%d%H%M%S")
 
 def get_anomalies_by_feature(model, pred_labels_yellow, pred_labels_red, time_index):
     time_index = time_index[model.slide_win:]
-    error_thresholds_yellow = np.percentile(model.validate_err_scores, 90, axis=1)
-    error_thresholds_red = np.max(model.validate_err_scores, axis=1) * model.threshold_multiplier
 
-    red_anomalies, red_indices = process_anomalies(model, pred_labels_red, error_thresholds_red, {}, time_index)
-    red_timestamps = set(timestamp for timestamps in red_anomalies.values() for timestamp in timestamps)
-    yellow_anomalies, yellow_indices = process_anomalies(model, pred_labels_yellow, error_thresholds_yellow, {}, time_index, red_timestamps)
+    error_thresholds_yellow = model.thresholds_yellow
+    error_thresholds_red = model.thresholds_red
 
-    all_anomaly_indices = red_indices + yellow_indices
+    only_red = pred_labels_red
+    only_yellow = pred_labels_yellow - pred_labels_red # Since we calculate the red anomalies by increasing the threshold, that means that the red anomalies are a subset of the yellow anomalies
 
-    if all_anomaly_indices:
-        anomaly_scores = model.test_err_scores[:, all_anomaly_indices]
-        anomaly_score = float(np.mean(anomaly_scores))
-    else:
-        anomaly_score = 0.0
+    yellow_anomalies = process_anomalies(model, only_yellow, error_thresholds_yellow, {}, time_index)
+    red_anomalies = process_anomalies(model, only_red, error_thresholds_red, {}, time_index)
+
+    anomaly_score = calculate_weighted_anomaly_density(only_red, only_yellow, time_index)
 
     # Convert timestamps to string format
     for color in [red_anomalies, yellow_anomalies]:
         for feature, timestamps in color.items():
             color[feature] = [timestamp_to_string(ts) for ts in timestamps]
 
+    # Check if there are any anomalies
+    has_yellow_anomalies = any(len(timestamps) > 0 for timestamps in yellow_anomalies.values())
+    has_red_anomalies = any(len(timestamps) > 0 for timestamps in red_anomalies.values())
+
     output = {
-        "result": bool(yellow_anomalies or red_anomalies),
+        "result": has_yellow_anomalies or has_red_anomalies,
         "anomaly_score": anomaly_score,
         "anomalies": {
-            "yellow": bool(yellow_anomalies),
-            "red": bool(red_anomalies),
+            "yellow": has_yellow_anomalies,
+            "red": has_red_anomalies,
             "yellow_anomalies": yellow_anomalies,
             "red_anomalies": red_anomalies
         }

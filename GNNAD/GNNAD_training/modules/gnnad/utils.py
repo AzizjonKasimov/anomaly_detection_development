@@ -123,7 +123,7 @@ def aggregate_error_scores(err_scores, topk=1):
     topk_indices = np.argpartition(err_scores, -topk, axis=0)[-topk:]
 
     # for each time, sum the topk error scores
-    topk_err_scores = np.sum(
+    topk_err_scores = np.mean(
         np.take_along_axis(err_scores, topk_indices, axis=0), axis=0
     )
 

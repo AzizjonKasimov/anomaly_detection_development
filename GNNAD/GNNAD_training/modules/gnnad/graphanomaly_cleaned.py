@@ -374,6 +374,7 @@ class GNNAD(GDN):
         return pred_labels_red
     
     def save_model(self, path='weights/last_trained_model.pt'):
+        os.remove(path)
         state = {
             'model_state_dict': self.state_dict(),
             'thresholds_yellow': self.thresholds_yellow,
